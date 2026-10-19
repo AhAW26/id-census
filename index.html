@@ -37,7 +37,7 @@
   <!-- 2. التصوير -->
   <section id="step-cam" class="card hidden">
     <div class="cam-head">
-      <b id="cam-title">صورة وجه الهوية</b>
+      <b id="cam-title">صورة ظهر الهوية (الباركود)</b>
       <span class="muted" id="cam-step">1 من 2</span>
     </div>
     <p class="muted small">ضع الهوية على ورقة بيضاء، وقرّب الهاتف حتى تملأ الهوية الإطار تماماً. يُلتقط التصوير تلقائياً حين يصبح الإطار أخضر.</p>
@@ -50,30 +50,27 @@
       <button type="button" id="cam-back">رجوع</button>
       <button type="button" class="primary" id="cam-shot" disabled>التقاط</button>
     </div>
+    <button type="button" class="btn ghost hidden" id="cam-skip">الرقم لا يُقرأ؟ التقط الوجه دون تحقق (يُراجع في الوحدة)</button>
   </section>
 
   <!-- 3. الإرسال -->
   <section id="step-send" class="card hidden">
     <b>جاهز للإرسال</b>
     <img id="result" alt="الصورة التي سترسل">
-    <ol class="send-steps">
-      <li>
-        <p>افتح محادثة وحدة المعلومات على الرقم <b id="wa-num" dir="ltr"></b> وأرسل الرسالة الجاهزة.</p>
-        <a class="btn" id="wa-chat" target="_blank" rel="noopener">فتح محادثة الوحدة</a>
-      </li>
-      <li>
-        <p>ارجع إلى هذه الصفحة وأرسل الصورة إلى المحادثة نفسها.</p>
-        <button type="button" class="primary" id="share">إرسال الصورة بالواتساب</button>
-        <a class="btn ghost" id="save" download>حفظ الصورة في الهاتف</a>
-      </li>
-    </ol>
-    <p class="muted small" id="share-note"></p>
+    <p class="small">اضغط «إرسال بالواتساب» واختر محادثة وحدة المعلومات (الرقم <b id="wa-num" dir="ltr"></b>).</p>
+    <button type="button" class="primary" id="share">إرسال بالواتساب</button>
+    <div class="alt">
+      <p class="muted small" id="share-note">لا تجد وحدة المعلومات في القائمة؟ افتح محادثتها مرة واحدة، ثم ارجع إلى هنا واضغط «إرسال بالواتساب».</p>
+      <a class="btn ghost" id="wa-chat" target="_blank" rel="noopener">فتح محادثة وحدة المعلومات</a>
+      <a class="btn ghost" id="save" download>حفظ الصورة في الهاتف</a>
+    </div>
     <button type="button" id="again">إعادة التصوير</button>
   </section>
 </main>
 
 <script src="config.js"></script>
 <script src="vendor/zxing-full.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

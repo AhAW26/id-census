@@ -3,19 +3,25 @@
    ثم تجميعها في صورة واحدة يرسلها الموظف بالواتساب. لا تحفظ الصفحة ولا ترسل أي بيانات بنفسها.
 
    الصورة المجمّعة يقرؤها برنامج الشعبة عند الاستيراد، فأبعادها ثابتة (يجب أن تطابق app/badges/census.py):
-   عرض 1600، رأس 220 فيه رمز QR نصه PRDC1|رقم الحاسبة|الهاتف|الإجابة، ثم الوجه 1600×1010، فراغ 20، ثم الظهر 1600×1010. */
+   عرض 1600، رأس 220 فيه رمز QR نصه PRDC1|رقم الحاسبة|الهاتف|الإجابة|تحقق الوجه (1 أو 0)، ثم الوجه 1600×1010، فراغ 20،
+   ثم الظهر 1600×1010.
+
+   الترتيب: الظهر أولاً (باركوده يثبت أن الهوية للموظف)، ثم الوجه، ولا يُقبل الوجه إلا إذا قُرئ عليه رقم الحاسبة نفسه،
+   حتى لا يُصوَّر ظهر هوية الشركة مع وجه هوية أخرى. */
 (() => {
   "use strict";
   const CFG = window.CENSUS_CONFIG || {};
   const W = 1600, HDR = 220, CH = 1010, GAP = 20;
   const RATIO = 85.6 / 54;           // مقاس الهوية
   const SHARP_MIN = 250;             // حدة الصورة (تباين لابلاس على عرض 480)
-  const NEED = { front: 3, back: 2 };  // لقطات خضراء متتالية قبل الالتقاط التلقائي
+  const NEED = { front: 1, back: 2 };  // لقطات خضراء متتالية قبل الالتقاط التلقائي (الوجه يمر بقراءة الرقم أصلاً)
+  const SKIP_AFTER = 8;              // محاولات لا يُقرأ فيها رقم الوجه قبل السماح بالتقاطه دون تحقق
+  const ROI = { x0: 0.12, x1: 0.62, y0: 0.62, y1: 0.82 };  // موضع «رقم الحاسبة» على وجه هوية الشركة
   const ANSWERS = { have: "هويتي معي", none: "لا أملك هوية", lost: "هويتي مفقودة" };
 
   const $ = (id) => document.getElementById(id);
-  const state = { emp: "", phone: "", answer: "", side: "front", front: null, back: null, stream: null,
-                  running: false, okRun: 0, lastOk: false, image: null };
+  const state = { emp: "", phone: "", answer: "", side: "back", front: null, back: null, stream: null,
+                  running: false, okRun: 0, lastOk: false, image: null, frontVerified: true, misses: 0 };
 
   ZXingWASM.setZXingModuleOverrides({
     locateFile: (path, prefix) => path.endsWith(".wasm") ? new URL("vendor/zxing_full.wasm", location.href).href : prefix + path,
@@ -50,7 +56,7 @@
     try { sessionStorage.setItem("census", JSON.stringify({ emp, phone, answer: state.answer })); } catch (e) { /* */ }
     if (state.answer === "have") {
       state.front = state.back = null;
-      openCamera("front");
+      openCamera("back");
     } else {
       await finish();
     }
@@ -71,7 +77,10 @@
     state.side = side;
     state.okRun = 0;
     $("cam-title").textContent = side === "front" ? "صورة وجه الهوية" : "صورة ظهر الهوية (الباركود)";
-    $("cam-step").textContent = side === "front" ? "1 من 2" : "2 من 2";
+    $("cam-step").textContent = side === "back" ? "1 من 2" : "2 من 2";
+    state.misses = 0;
+    $("cam-skip").classList.add("hidden");
+    if (side === "back") ocrWorker();  // تحميل قارئ الأرقام مسبقاً أثناء تصوير الظهر
     setHint("جارٍ تشغيل الكاميرا…", "");
     $("cam-shot").disabled = true;
     show("step-cam");
@@ -211,6 +220,56 @@
     return { raw: r.text, emp: /^\d+$/.test(parts[0] || "") ? String(parseInt(parts[0], 10)) : null, card: parts[2] || "" };
   }
 
+  // ---------- قراءة رقم الحاسبة من وجه الهوية ----------
+  let ocr = null;
+  function ocrWorker() {
+    if (ocr || !window.Tesseract) return ocr;
+    const base = new URL("vendor/tesseract/", location.href).href;
+    ocr = Tesseract.createWorker("eng", 1, {
+      workerPath: base + "worker.min.js", corePath: base, langPath: base.replace(/\/$/, ""), gzip: true,
+    }).then(async (w) => {
+      await w.setParameters({ tessedit_char_whitelist: "0123456789:/", tessedit_pageseg_mode: "11" });
+      return w;
+    }).catch(() => null);
+    return ocr;
+  }
+
+  // يقص موضع رقم الحاسبة من الهوية (أو من الهوية مقلوبة) ويحوّله أبيض وأسود بعتبة معينة
+  function roiCanvas(full, flip, cut) {
+    const { canvas, ox, oy, gw, gh } = full;
+    const r = flip ? { x0: 1 - ROI.x1, x1: 1 - ROI.x0, y0: 1 - ROI.y1, y1: 1 - ROI.y0 } : ROI;
+    const sx = ox + gw * r.x0, sy = oy + gh * r.y0, sw = gw * (r.x1 - r.x0), sh = gh * (r.y1 - r.y0);
+    const c = document.createElement("canvas");
+    c.width = 520; c.height = Math.round(520 * sh / sw);
+    const x = c.getContext("2d");
+    if (flip) { x.translate(c.width, c.height); x.rotate(Math.PI); }
+    x.drawImage(canvas, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    const img = x.getImageData(0, 0, c.width, c.height), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] < cut ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.putImageData(img, 0, 0);
+    return c;
+  }
+
+  // true إن قُرئ رقم الحاسبة نفسه على الوجه، false إن لم يُقرأ، null إن لم يجهز القارئ بعد
+  async function frontNumber(full) {
+    const w = await Promise.race([ocrWorker(), new Promise((r) => setTimeout(() => r(undefined), 50))]);
+    if (!w) return w === null ? false : null;
+    const emp = String(parseInt(state.emp, 10));
+    for (const flip of [false, true]) {
+      for (const cut of [90, 70, 115]) {
+        const { data } = await w.recognize(roiCanvas(full, flip, cut));
+        const runs = (data.text.match(/\d+/g) || []);
+        if (runs.some((r) => r === emp || (r.length === emp.length + 1 && (r.startsWith(emp) || r.endsWith(emp)))))
+          return true;
+      }
+    }
+    return false;
+  }
+
   async function analyse() {
     const fill = fills(grab(0.14, 640));
     if (!fill.ok) return fill;
@@ -221,7 +280,13 @@
     const code = await readCode(full.canvas);
     if (state.side === "front") {
       if (code) return { ok: false, msg: "هذا ظهر الهوية. اقلبها وصوّر الوجه الذي فيه صورتك." };
-      return { ok: true, msg: "ممتاز، ثبّت الهاتف…", canvas: full.canvas };
+      const num = await frontNumber(full);
+      if (num === true) return { ok: true, msg: "رقم الحاسبة على الوجه مطابق ✓", canvas: full.canvas, verified: true };
+      state.misses++;
+      if (state.misses >= SKIP_AFTER) $("cam-skip").classList.remove("hidden");
+      state.lastCanvas = full.canvas;
+      if (num === null) return { ok: false, msg: "جارٍ تجهيز قراءة رقم الحاسبة…" };
+      return { ok: false, msg: `لم يُقرأ رقم الحاسبة ${state.emp} على وجه الهوية. صوّر وجه الهوية نفسها التي صوّرت ظهرها، وثبّت الهاتف في إضاءة جيدة.` };
     }
     if (!code) return { ok: false, msg: "لم يُقرأ الباركود بعد. ثبّت الهاتف حتى يظهر الباركود كاملاً وواضحاً." };
     if (code.emp !== String(parseInt(state.emp, 10)))
@@ -232,12 +297,13 @@
   async function capture(res) {
     state.running = false;
     state[state.side] = res.canvas;
-    if (state.side === "front") {
-      setHint("تم تصوير الوجه ✓ الآن اقلب الهوية وصوّر الظهر.", "ok");
+    if (state.side === "back") {
+      setHint("تم تصوير الظهر ✓ الآن اقلب الهوية وصوّر الوجه.", "ok");
       await new Promise((r) => setTimeout(r, 900));
-      openCamera("back");
+      openCamera("front");
       return;
     }
+    state.frontVerified = res.verified !== false;
     stopCamera();
     await finish();
   }
@@ -248,9 +314,13 @@
     const res = await analyse();
     if (res.ok) capture(res); else { setHint(res.msg, "bad"); state.running = true; loop(); }
   });
+  $("cam-skip").addEventListener("click", () => {
+    if (!state.lastCanvas) return;
+    capture({ canvas: state.lastCanvas, verified: false });
+  });
   $("cam-back").addEventListener("click", () => {
     stopCamera();
-    if (state.side === "back" && state.front) { state.front = null; openCamera("front"); return; }
+    if (state.side === "front" && state.back) { state.back = null; openCamera("back"); return; }
     show("step-info");
   });
 
@@ -267,7 +337,8 @@
     c.width = W; c.height = have ? HDR + CH + GAP + CH : HDR + 260;
     const x = c.getContext("2d");
     x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
-    const qr = await qrBitmap(`PRDC1|${state.emp}|${state.phone}|${state.answer}`);
+    const fv = have && !state.frontVerified ? 0 : 1;
+    const qr = await qrBitmap(`PRDC1|${state.emp}|${state.phone}|${state.answer}|${fv}`);
     x.imageSmoothingEnabled = false;
     x.drawImage(qr, 20, 20, 180, 180);
     x.imageSmoothingEnabled = true;
@@ -275,7 +346,7 @@
     x.font = "800 46px Almarai, sans-serif";
     x.fillText(`${CFG.title || "جرد الهويات"} · رقم الحاسبة ${state.emp}`, W - 30, 78);
     x.font = "400 34px Almarai, sans-serif";
-    x.fillText(`الهاتف ${state.phone} · ${ANSWERS[state.answer]}`, W - 30, 136);
+    x.fillText(`الهاتف ${state.phone} · ${ANSWERS[state.answer]}${fv ? "" : " · الوجه لم يُتحقق منه"}`, W - 30, 136);
     x.fillStyle = "#687991"; x.font = "400 26px Almarai, sans-serif";
     x.fillText(new Date().toLocaleString("ar-IQ"), W - 30, 186);
     if (have) {
@@ -296,13 +367,12 @@
     const url = URL.createObjectURL(blob);
     $("result").src = url;
     $("save").href = url; $("save").download = name;
-    const msg = `جرد الهويات\nرقم الحاسبة: ${state.emp}\n${ANSWERS[state.answer]}\nسأرسل الصورة الآن.`;
+    const msg = `جرد الهويات\nرقم الحاسبة: ${state.emp}\n${ANSWERS[state.answer]}`;
     $("wa-chat").href = `https://wa.me/${CFG.whatsappIntl}?text=${encodeURIComponent(msg)}`;
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [state.image] }));
     $("share").classList.toggle("hidden", !canShare);
-    $("share-note").textContent = canShare
-      ? "إن لم يظهر الواتساب في قائمة المشاركة، احفظ الصورة ثم أرفقها في المحادثة من الاستوديو."
-      : "هاتفك لا يدعم الإرسال المباشر: احفظ الصورة ثم أرفقها في محادثة الوحدة من الاستوديو.";
+    if (!canShare)
+      $("share-note").textContent = "هاتفك لا يدعم الإرسال المباشر: احفظ الصورة، ثم افتح محادثة وحدة المعلومات وأرفقها من الاستوديو.";
     show("step-send");
   }
 
@@ -311,6 +381,6 @@
     catch (e) { /* أغلق الموظف نافذة المشاركة */ }
   });
   $("again").addEventListener("click", () => {
-    if (state.answer === "have") { state.front = state.back = null; openCamera("front"); } else show("step-info");
+    if (state.answer === "have") { state.front = state.back = null; openCamera("back"); } else show("step-info");
   });
 })();
