@@ -4,6 +4,8 @@ window.CENSUS_CONFIG = {
   whatsappDisplay: "07718832911",
   // الرقم الدولي نفسه بلا صفر وبلا + (964 ثم الرقم بدون الصفر الأول)
   whatsappIntl: "9647718832911",
+  // رابط Web app لسكربت Google (apps-script/Code.gs). إن تُرك فارغاً يكون الإرسال بالواتساب فقط.
+  uploadUrl: "",
   title: "جرد الهويات",
   subtitle: "مصفى كربلاء · وحدة المعلومات",
 };

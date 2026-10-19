@@ -57,12 +57,22 @@
   <section id="step-send" class="card hidden">
     <b>جاهز للإرسال</b>
     <img id="result" alt="الصورة التي سترسل">
-    <p class="small">اضغط «إرسال بالواتساب» واختر محادثة وحدة المعلومات (الرقم <b id="wa-num" dir="ltr"></b>).</p>
+    <div id="direct" class="hidden">
+      <button type="button" class="primary" id="upload">إرسال</button>
+      <p class="hint" id="upload-msg"></p>
+    </div>
+    <div id="done" class="done hidden">
+      <b>تم الإرسال ✓</b>
+      <p class="small">وصلت صورتك إلى وحدة المعلومات. شكراً لك، يمكنك إغلاق الصفحة.</p>
+    </div>
+    <div id="wa">
+    <p class="small" id="wa-intro">اضغط «إرسال بالواتساب» واختر محادثة وحدة المعلومات (الرقم <b id="wa-num" dir="ltr"></b>).</p>
     <button type="button" class="primary" id="share">إرسال بالواتساب</button>
     <div class="alt">
       <p class="muted small" id="share-note">لا تجد وحدة المعلومات في القائمة؟ افتح محادثتها مرة واحدة، ثم ارجع إلى هنا واضغط «إرسال بالواتساب».</p>
       <a class="btn ghost" id="wa-chat" target="_blank" rel="noopener">فتح محادثة وحدة المعلومات</a>
       <a class="btn ghost" id="save" download>حفظ الصورة في الهاتف</a>
+    </div>
     </div>
     <button type="button" id="again">إعادة التصوير</button>
   </section>

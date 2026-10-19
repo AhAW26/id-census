@@ -338,7 +338,8 @@
     const x = c.getContext("2d");
     x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
     const fv = have && !state.frontVerified ? 0 : 1;
-    const qr = await qrBitmap(`PRDC1|${state.emp}|${state.phone}|${state.answer}|${fv}`);
+    state.payload = `PRDC1|${state.emp}|${state.phone}|${state.answer}|${fv}`;
+    const qr = await qrBitmap(state.payload);
     x.imageSmoothingEnabled = false;
     x.drawImage(qr, 20, 20, 180, 180);
     x.imageSmoothingEnabled = true;
@@ -373,14 +374,50 @@
     $("share").classList.toggle("hidden", !canShare);
     if (!canShare)
       $("share-note").textContent = "هاتفك لا يدعم الإرسال المباشر: احفظ الصورة، ثم افتح محادثة وحدة المعلومات وأرفقها من الاستوديو.";
+    const direct = !!CFG.uploadUrl;
+    $("direct").classList.toggle("hidden", !direct);
+    $("done").classList.add("hidden");
+    $("upload").disabled = false;
+    $("upload-msg").textContent = ""; $("upload-msg").className = "hint";
+    $("wa").classList.toggle("hidden", direct);
     show("step-send");
   }
+
+  // الإرسال المباشر إلى Google Drive عبر سكربت الوحدة؛ إن فشل يظهر الإرسال بالواتساب بديلاً
+  $("upload").addEventListener("click", async () => {
+    const btn = $("upload"), msg = $("upload-msg");
+    btn.disabled = true; msg.className = "hint"; msg.textContent = "جارٍ الإرسال…";
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1]);
+        r.onerror = reject;
+        r.readAsDataURL(state.image);
+      });
+      const res = await fetch(CFG.uploadUrl, {
+        method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ payload: state.payload, image }),
+      });
+      const out = await res.json();
+      if (!out.ok) throw Object.assign(new Error(out.error || "تعذر الإرسال"), { fromServer: true });
+      $("direct").classList.add("hidden");
+      $("done").classList.remove("hidden");
+      $("again").classList.add("hidden");
+      try { sessionStorage.removeItem("census"); } catch (e) { /* */ }
+    } catch (e) {
+      btn.disabled = false;
+      msg.className = "hint bad";
+      msg.textContent = (e && e.fromServer ? e.message + ". " : "تعذر الإرسال. تأكد من الإنترنت وأعد المحاولة، ") + "أو أرسلها بالواتساب من الأسفل.";
+      $("wa").classList.remove("hidden");
+    }
+  });
 
   $("share").addEventListener("click", async () => {
     try { await navigator.share({ files: [state.image], text: `جرد الهويات · رقم الحاسبة ${state.emp}` }); }
     catch (e) { /* أغلق الموظف نافذة المشاركة */ }
   });
   $("again").addEventListener("click", () => {
+    $("again").classList.remove("hidden");
     if (state.answer === "have") { state.front = state.back = null; openCamera("back"); } else show("step-info");
   });
 })();

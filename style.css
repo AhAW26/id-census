@@ -36,3 +36,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .hint.bad { color: var(--bad); }
 #result { width: 100%; border: 1px solid var(--line); border-radius: 10px; }
 .alt { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+#direct { display: flex; flex-direction: column; gap: 8px; }
+#wa { display: flex; flex-direction: column; gap: 12px; }
+.done { background: #f2faf5; border: 1px solid #bfe3cd; border-radius: 12px; padding: 14px; color: #2f7a52; text-align: center; }
+.done p { color: var(--ink); margin-top: 6px; }
