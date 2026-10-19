@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>جرد الهويات</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1 id="title">جرد الهويات</h1>
+  <p id="subtitle"></p>
+</header>
+
+<main>
+  <!-- 1. البيانات -->
+  <section id="step-info" class="card">
+    <label>رقم الحاسبة
+      <input id="emp" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="مثال: 7066">
+    </label>
+    <label>رقم الهاتف (واتساب)
+      <input id="phone" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="07xxxxxxxxx">
+    </label>
+    <div class="q">هل هويتك الدائمية معك؟</div>
+    <div class="choices" id="answer">
+      <button type="button" data-v="have">نعم، هويتي معي</button>
+      <button type="button" data-v="none">لا أملك هوية</button>
+      <button type="button" data-v="lost">هويتي مفقودة</button>
+    </div>
+    <p class="err" id="info-err"></p>
+    <button class="primary" id="info-next" type="button">التالي</button>
+  </section>
+
+  <!-- 2. التصوير -->
+  <section id="step-cam" class="card hidden">
+    <div class="cam-head">
+      <b id="cam-title">صورة وجه الهوية</b>
+      <span class="muted" id="cam-step">1 من 2</span>
+    </div>
+    <p class="muted small">ضع الهوية على ورقة بيضاء، وقرّب الهاتف حتى تملأ الهوية الإطار تماماً. يُلتقط التصوير تلقائياً حين يصبح الإطار أخضر.</p>
+    <div class="viewer" id="viewer">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="guide" id="guide"></div>
+    </div>
+    <p class="hint" id="cam-hint">جارٍ تشغيل الكاميرا…</p>
+    <div class="row">
+      <button type="button" id="cam-back">رجوع</button>
+      <button type="button" class="primary" id="cam-shot" disabled>التقاط</button>
+    </div>
+  </section>
+
+  <!-- 3. الإرسال -->
+  <section id="step-send" class="card hidden">
+    <b>جاهز للإرسال</b>
+    <img id="result" alt="الصورة التي سترسل">
+    <ol class="send-steps">
+      <li>
+        <p>افتح محادثة وحدة المعلومات على الرقم <b id="wa-num" dir="ltr"></b> وأرسل الرسالة الجاهزة.</p>
+        <a class="btn" id="wa-chat" target="_blank" rel="noopener">فتح محادثة الوحدة</a>
+      </li>
+      <li>
+        <p>ارجع إلى هذه الصفحة وأرسل الصورة إلى المحادثة نفسها.</p>
+        <button type="button" class="primary" id="share">إرسال الصورة بالواتساب</button>
+        <a class="btn ghost" id="save" download>حفظ الصورة في الهاتف</a>
+      </li>
+    </ol>
+    <p class="muted small" id="share-note"></p>
+    <button type="button" id="again">إعادة التصوير</button>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="vendor/zxing-full.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
