@@ -5,7 +5,7 @@ window.CENSUS_CONFIG = {
   // الرقم الدولي نفسه بلا صفر وبلا + (964 ثم الرقم بدون الصفر الأول)
   whatsappIntl: "9647718832911",
   // رابط Web app لسكربت Google (apps-script/Code.gs). إن تُرك فارغاً يكون الإرسال بالواتساب فقط.
-  uploadUrl: "",
+  uploadUrl: "https://script.google.com/macros/s/AKfycbx-7HP-rH_X0w1CHtVTcZtJbQgX5TCSIeTJHG1n-fSJ4Fqzb23HKu2WelsqdvgRzskv/exec",
   title: "جرد الهويات",
   subtitle: "مصفى كربلاء · وحدة المعلومات",
 };
