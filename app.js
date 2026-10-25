@@ -14,8 +14,8 @@
   const W = 1600, HDR = 220, CH = 1010, GAP = 20;
   const RATIO = 85.6 / 54;           // مقاس الهوية
   const SHARP_MIN = 250;             // حدة الصورة (تباين لابلاس على عرض 480)
-  const NEED = { front: 1, back: 2 };  // لقطات خضراء متتالية قبل الالتقاط التلقائي (الوجه يمر بقراءة الرقم أصلاً)
-  const SKIP_AFTER = 8;              // محاولات لا يُقرأ فيها رقم الوجه قبل السماح بالتقاطه دون تحقق
+  const NEED = { front: 1, back: 1 };  // لقطات خضراء متتالية قبل الالتقاط التلقائي (قراءة الباركود أو الرقم تكفي دليلاً)
+  const SKIP_AFTER = 16;             // محاولات لا يُقرأ فيها رقم الوجه قبل السماح بالتقاطه دون تحقق
   const ROI = { x0: 0.12, x1: 0.62, y0: 0.62, y1: 0.82 };  // موضع «رقم الحاسبة» على وجه هوية الشركة
   const ANSWERS = { have: "هويتي معي", none: "لا أملك هوية", lost: "هويتي مفقودة" };
 
@@ -144,7 +144,7 @@
         $("cam-shot").disabled = !res.ok;
         if (res.ok && state.okRun >= NEED[state.side]) { capture(res); continue; }
       }
-      await new Promise((r) => setTimeout(r, 180));
+      await new Promise((r) => setTimeout(r, 60));
     }
   }
 
@@ -190,8 +190,9 @@
     ].filter(([inn, out]) => inn !== null && out !== null);
     if (!sides.length) return { ok: true };
     const outside = sides.map(([, out]) => out), inside = sides.map(([inn]) => inn);
-    const good = sides.filter(([inn, out]) => out - inn >= 18).length;
-    if (good === sides.length) return { ok: true };
+    // جهة واحدة يُسمح لها بالتساهل (ظل أو حافة ورقة) ما دامت البقية مطابقة
+    const good = sides.filter(([inn, out]) => out - inn >= 14).length;
+    if (good >= Math.max(1, sides.length - 1)) return { ok: true };
     const avg = (v) => v.reduce((s, x) => s + x, 0) / v.length;
     if (avg(outside) < 150) return { ok: false, msg: "ضع الهوية على ورقة بيضاء." };
     if (avg(inside) >= avg(outside) - 10) return { ok: false, msg: "قرّب الهاتف حتى تملأ الهوية الإطار." };
@@ -210,11 +211,22 @@
     return { sharp: sum2 / n - (sum / n) ** 2, glare: glare / n };
   }
 
-  async function readCode(canvas) {
-    const ctx = canvas.getContext("2d");
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const out = await ZXingWASM.readBarcodes(data, { formats: ["PDF417"], tryHarder: true, maxNumberOfSymbols: 1 });
-    const r = out.find((x) => x.isValid);
+  // يقرأ الباركود من نسخة مصغرة أولاً (أسرع بكثير)، ثم من الصورة كاملة إن لم يُقرأ (إلا في الفحص السريع)
+  async function readCode(canvas, quick) {
+    const sizes = canvas.width > 1100 ? [1000, quick ? 0 : canvas.width] : [canvas.width];
+    let r = null;
+    for (const w of sizes.filter(Boolean)) {
+      let c = canvas;
+      if (w !== canvas.width) {
+        c = document.createElement("canvas");
+        c.width = w; c.height = Math.round(canvas.height * w / canvas.width);
+        c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+      }
+      const data = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+      const out = await ZXingWASM.readBarcodes(data, { formats: ["PDF417"], tryHarder: !quick, maxNumberOfSymbols: 1 });
+      r = out.find((x) => x.isValid);
+      if (r) break;
+    }
     if (!r) return null;
     let parts = r.text.split(",").map((p) => p.trim());
     // هويات أقدم بلا فواصل: رقم الحاسبة والاسم ورقم الهوية والتاريخ ملتصقة
@@ -262,13 +274,13 @@
     const w = await Promise.race([ocrWorker(), new Promise((r) => setTimeout(() => r(undefined), 50))]);
     if (!w) return w === null ? false : null;
     const emp = String(parseInt(state.emp, 10));
+    // عتبة واحدة في كل لقطة (تتبدل بين اللقطات) حتى تبقى الاستجابة سريعة
+    const cut = [90, 70, 115][state.misses % 3];
     for (const flip of [false, true]) {
-      for (const cut of [90, 70, 115]) {
-        const { data } = await w.recognize(roiCanvas(full, flip, cut));
-        const runs = (data.text.match(/\d+/g) || []);
-        if (runs.some((r) => r === emp || (r.length === emp.length + 1 && (r.startsWith(emp) || r.endsWith(emp)))))
-          return true;
-      }
+      const { data } = await w.recognize(roiCanvas(full, flip, cut));
+      const runs = (data.text.match(/\d+/g) || []);
+      if (runs.some((r) => r === emp || (r.length === emp.length + 1 && (r.startsWith(emp) || r.endsWith(emp)))))
+        return true;
     }
     return false;
   }
@@ -278,9 +290,10 @@
     if (!fill.ok) return fill;
     const q = sharpness();
     if (q.glare > 0.06) return { ok: false, msg: "يوجد انعكاس ضوء على الهوية. غيّر زاوية الهاتف أو ابتعد عن المصباح." };
-    if (q.sharp < SHARP_MIN) return { ok: false, msg: "الصورة غير واضحة. ثبّت الهاتف قليلاً." };
+    // الحدة لا تمنع وحدها: إن قُرئ الباركود أو الرقم فالصورة واضحة بما يكفي، وتُستعمل لرسالة التنبيه فقط
+    const blurry = q.sharp < SHARP_MIN;
     const full = grab(0.03);
-    const code = await readCode(full.canvas);
+    const code = await readCode(full.canvas, state.side === "front");
     if (state.side === "front") {
       if (code) return { ok: false, msg: "هذا ظهر الهوية. اقلبها وصوّر الوجه الذي فيه صورتك." };
       const num = await frontNumber(full);
@@ -289,8 +302,10 @@
       if (state.misses >= SKIP_AFTER) $("cam-skip").classList.remove("hidden");
       state.lastCanvas = full.canvas;
       if (num === null) return { ok: false, msg: "جارٍ تجهيز قراءة رقم الحاسبة…" };
+      if (blurry) return { ok: false, msg: "الصورة غير واضحة. ثبّت الهاتف قليلاً." };
       return { ok: false, msg: `لم يُقرأ رقم الحاسبة ${state.emp} على وجه الهوية. صوّر وجه الهوية نفسها التي صوّرت ظهرها، وثبّت الهاتف في إضاءة جيدة.` };
     }
+    if (!code && blurry) return { ok: false, msg: "الصورة غير واضحة. ثبّت الهاتف قليلاً." };
     if (!code) return { ok: false, msg: "لم يُقرأ الباركود بعد. ثبّت الهاتف حتى يظهر الباركود كاملاً وواضحاً." };
     if (code.emp !== String(parseInt(state.emp, 10)))
       return { ok: false, msg: `هذه الهوية تعود لرقم الحاسبة ${code.emp || "غير معروف"}، وليست لرقم ${state.emp}. صوّر هويتك أنت.` };
