@@ -216,7 +216,10 @@
     const out = await ZXingWASM.readBarcodes(data, { formats: ["PDF417"], tryHarder: true, maxNumberOfSymbols: 1 });
     const r = out.find((x) => x.isValid);
     if (!r) return null;
-    const parts = r.text.split(",").map((p) => p.trim());
+    let parts = r.text.split(",").map((p) => p.trim());
+    // هويات أقدم بلا فواصل: رقم الحاسبة والاسم ورقم الهوية والتاريخ ملتصقة
+    const glued = parts.length === 1 && /^(\d+)\s*(\D*?\D)\s*(\d+)\s*(\d{2}\/\d{2}\/\d{4})$/.exec(parts[0]);
+    if (glued) parts = glued.slice(1).map((p) => p.trim());
     return { raw: r.text, emp: /^\d+$/.test(parts[0] || "") ? String(parseInt(parts[0], 10)) : null, card: parts[2] || "" };
   }
 
