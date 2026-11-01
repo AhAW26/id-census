@@ -52,6 +52,13 @@
       : !state.answer ? "اختر: هل هويتك الدائمية معك؟" : "";
     $("info-err").textContent = err;
     if (err) return;
+    // قبل التصوير: هل الرقم في قائمة الموظفين، وهل أرسل جرده سابقاً (إن تعذر الفحص يكمل، والسكربت يتحقق عند الإرسال)
+    const chk = await precheck(emp);
+    if (chk && chk.known === false) { $("info-err").textContent = "رقم الحاسبة غير موجود في قائمة الموظفين. تأكد من الرقم أو راجع وحدة المعلومات."; return; }
+    if (chk && chk.done && (chk.done === "have" || state.answer !== "have")) {
+      $("info-err").textContent = "تم استلام جردك سابقاً، ولا حاجة لإعادة الإرسال. للتصحيح راجع وحدة المعلومات.";
+      return;
+    }
     state.emp = emp; state.phone = phone;
     try { sessionStorage.setItem("census", JSON.stringify({ emp, phone, answer: state.answer })); } catch (e) { /* */ }
     if (state.answer === "have") {
@@ -61,6 +68,24 @@
       await finish();
     }
   });
+
+  async function precheck(emp) {
+    if (!CFG.uploadUrl) return null;
+    const btn = $("info-next");
+    btn.disabled = true; btn.textContent = "جارٍ التحقق…";
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(CFG.uploadUrl + "?emp=" + encodeURIComponent(emp), { signal: ctl.signal });
+      clearTimeout(t);
+      const j = await r.json();
+      return j && j.ok ? j : null;
+    } catch (e) {
+      return null;
+    } finally {
+      btn.disabled = false; btn.textContent = "التالي";
+    }
+  }
 
   function show(id) {
     ["step-info", "step-cam", "step-send"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
@@ -447,15 +472,20 @@
         body: JSON.stringify({ payload: state.payload, image }),
       });
       const out = await res.json();
-      if (!out.ok) throw Object.assign(new Error(out.error || "تعذر الإرسال"), { fromServer: true });
+      if (!out.ok) throw Object.assign(new Error(out.error || "تعذر الإرسال"), { fromServer: true, done: !!out.done });
       $("direct").classList.add("hidden");
       $("done").classList.remove("hidden");
       $("again").classList.add("hidden");
       try { sessionStorage.removeItem("census"); } catch (e) { /* */ }
     } catch (e) {
-      btn.disabled = false;
       msg.className = "hint bad";
-      msg.textContent = (e && e.fromServer ? e.message + ". " : "تعذر الإرسال. تأكد من الإنترنت وأعد المحاولة، ") + "أو أرسلها بالواتساب من الأسفل.";
+      if (e && e.fromServer) {  // رفض من السكربت (رقم غير موجود، أُرسل سابقاً…): لا بديل بالواتساب
+        btn.disabled = !!e.done;
+        msg.textContent = e.message;
+        return;
+      }
+      btn.disabled = false;
+      msg.textContent = "تعذر الإرسال. تأكد من الإنترنت وأعد المحاولة، أو أرسلها بالواتساب من الأسفل.";
       $("wa").classList.remove("hidden");
     }
   });
