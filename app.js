@@ -80,6 +80,7 @@
     $("cam-step").textContent = side === "back" ? "1 من 2" : "2 من 2";
     state.misses = 0;
     $("cam-skip").classList.add("hidden");
+    $("flip").classList.add("hidden");
     if (side === "back") ocrWorker();  // تحميل قارئ الأرقام مسبقاً أثناء تصوير الظهر
     setHint("جارٍ تشغيل الكاميرا…", "");
     $("cam-shot").disabled = true;
@@ -341,7 +342,12 @@
     state[state.side] = res.canvas;
     if (state.side === "back") {
       setHint("تم تصوير الظهر ✓ الآن اقلب الهوية وصوّر الوجه.", "ok");
-      await new Promise((r) => setTimeout(r, 900));
+      try { navigator.vibrate && navigator.vibrate(150); } catch (e) { /* */ }
+      // هوية متحركة تنقلب تبقى ظاهرة لحظات (أو حتى يلمسها الموظف) قبل بدء تصوير الوجه
+      $("cam-title").textContent = "صورة وجه الهوية"; $("cam-step").textContent = "2 من 2";
+      $("flip").classList.remove("hidden");
+      await new Promise((r) => { const t = setTimeout(r, 2600); $("flip").onclick = () => { clearTimeout(t); r(); }; });
+      $("flip").classList.add("hidden");
       openCamera("front");
       return;
     }

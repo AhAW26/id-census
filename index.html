@@ -44,6 +44,15 @@
     <div class="viewer" id="viewer">
       <video id="video" playsinline muted autoplay></video>
       <div class="guide" id="guide"></div>
+      <!-- بعد التقاط الظهر: هوية متحركة تنقلب حتى ينتبه الموظف أن المطلوب الآن هو الوجه -->
+      <div class="flip hidden" id="flip">
+        <div class="flip-card">
+          <div class="face back"><i class="t1"></i><i class="t2"></i><i class="bc"></i></div>
+          <div class="face front"><i class="ph"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i></div>
+        </div>
+        <b>تم تصوير الظهر ✓</b>
+        <span>اقلب الهوية الآن وصوّر الوجه الذي فيه صورتك</span>
+      </div>
     </div>
     <p class="hint" id="cam-hint">جارٍ تشغيل الكاميرا…</p>
     <div class="row">
