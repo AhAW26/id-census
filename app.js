@@ -211,17 +211,41 @@
     return { sharp: sum2 / n - (sum / n) ** 2, glare: glare / n };
   }
 
-  // يقرأ الباركود من نسخة مصغرة أولاً (أسرع بكثير)، ثم من الصورة كاملة إن لم يُقرأ (إلا في الفحص السريع)
-  async function readCode(canvas, quick) {
-    const sizes = canvas.width > 1100 ? [1000, quick ? 0 : canvas.width] : [canvas.width];
+  // يقص جزءاً من الإطار (نِسَب من الهوية) مكبّراً بعامل معين
+  function cropCard(full, r, k) {
+    const { canvas, ox, oy, gw, gh } = full;
+    const sx = Math.max(0, ox + gw * r.x0), sy = Math.max(0, oy + gh * r.y0);
+    const sw = Math.min(canvas.width - sx, gw * (r.x1 - r.x0)), sh = Math.min(canvas.height - sy, gh * (r.y1 - r.y0));
+    const c = document.createElement("canvas");
+    c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+    const x = c.getContext("2d");
+    x.imageSmoothingQuality = "high";
+    x.drawImage(canvas, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  // موضع الباركود على ظهر الهوية (والهوية مقلوبة). بعض الهويات باركودها صغير، فيُقص ويُكبّر حتى يُقرأ
+  const CODE_ROI = [{ x0: 0.15, x1: 0.88, y0: 0.62, y1: 1 }, { x0: 0.12, x1: 0.85, y0: 0, y1: 0.38 }];
+
+  // يقرأ الباركود من نسخة مصغرة أولاً (أسرع)، ثم من موضع الباركود مكبّراً، ثم من الصورة كاملة (إلا في الفحص السريع)
+  async function readCode(full, quick) {
+    const canvas = full.canvas;
+    const tries = [];
+    if (canvas.width > 1100) {
+      const c = document.createElement("canvas");
+      c.width = 1000; c.height = Math.round(canvas.height * 1000 / canvas.width);
+      c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+      tries.push(c);
+    } else tries.push(canvas);
+    if (!quick) {
+      // القراءة حساسة لمقدار التكبير، فيُجرَّب حجمان
+      for (const roi of CODE_ROI) for (const tw of [1100, 1500])
+        tries.push(() => cropCard(full, roi, Math.min(3, tw / (full.gw * (roi.x1 - roi.x0)))));
+      if (canvas.width > 1100) tries.push(canvas);
+    }
     let r = null;
-    for (const w of sizes.filter(Boolean)) {
-      let c = canvas;
-      if (w !== canvas.width) {
-        c = document.createElement("canvas");
-        c.width = w; c.height = Math.round(canvas.height * w / canvas.width);
-        c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
-      }
+    for (const t of tries) {
+      const c = typeof t === "function" ? t() : t;
       const data = c.getContext("2d").getImageData(0, 0, c.width, c.height);
       const out = await ZXingWASM.readBarcodes(data, { formats: ["PDF417"], tryHarder: !quick, maxNumberOfSymbols: 1 });
       r = out.find((x) => x.isValid);
@@ -293,7 +317,7 @@
     // الحدة لا تمنع وحدها: إن قُرئ الباركود أو الرقم فالصورة واضحة بما يكفي، وتُستعمل لرسالة التنبيه فقط
     const blurry = q.sharp < SHARP_MIN;
     const full = grab(0.03);
-    const code = await readCode(full.canvas, state.side === "front");
+    const code = await readCode(full, state.side === "front");
     if (state.side === "front") {
       if (code) return { ok: false, msg: "هذا ظهر الهوية. اقلبها وصوّر الوجه الذي فيه صورتك." };
       const num = await frontNumber(full);
