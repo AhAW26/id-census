@@ -112,23 +112,66 @@
     show("step-cam");
     if (!state.stream) {
       try {
-        state.stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        });
+        await startStream(null);
+        await pickMainCamera();
       } catch (e) {
         setHint("لم يُسمح بفتح الكاميرا. اسمح للمتصفح باستخدام الكاميرا ثم أعد تحميل الصفحة.", "bad");
         return;
       }
-      const track = state.stream.getVideoTracks()[0];
-      try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) { /* غير مدعوم */ }
-      video.srcObject = state.stream;
-      await new Promise((r) => (video.readyState >= 1 ? r() : (video.onloadedmetadata = r)));
-      try { await video.play(); } catch (e) { /* */ }
     }
     layout();
     if (!state.running) { state.running = true; loop(); }
   }
+
+  async function startStream(deviceId) {
+    if (state.stream) state.stream.getTracks().forEach((t) => t.stop());
+    const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { facingMode: { ideal: "environment" }, ...size },
+    });
+    const track = state.stream.getVideoTracks()[0];
+    state.deviceId = deviceId || (track.getSettings && track.getSettings().deviceId) || null;
+    try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) { /* غير مدعوم */ }
+    // بعض الهواتف تفتح بتقريب 0.5 (العدسة الواسعة) التي لا تركّز عن قرب: نثبّت التقريب على 1
+    try {
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.zoom && caps.zoom.min < 1 && caps.zoom.max >= 1) await track.applyConstraints({ advanced: [{ zoom: 1 }] });
+    } catch (e) { /* غير مدعوم */ }
+    video.srcObject = state.stream;
+    await new Promise((r) => (video.readyState >= 1 ? r() : (video.onloadedmetadata = r)));
+    try { await video.play(); } catch (e) { /* */ }
+  }
+
+  // الكاميرات الخلفية مرتبة: الرئيسية أولاً (في أندرويد اسمها camera2 0، والواسعة والمقربة أرقام أكبر)
+  async function backCameras() {
+    let list = [];
+    try { list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput"); } catch (e) { return []; }
+    const back = list.filter((d) => /back|rear|environment|خلف/i.test(d.label));
+    const num = (d) => { const m = /camera2?\s*(\d+)/i.exec(d.label); return m ? +m[1] : 99; };
+    const wide = (d) => (/ultra|wide|0[.,]5/i.test(d.label) ? 1 : 0);
+    return back.sort((a, b) => wide(a) - wide(b) || num(a) - num(b));
+  }
+
+  async function pickMainCamera() {
+    const cams = await backCameras();
+    state.cams = cams;
+    $("cam-switch").classList.toggle("hidden", cams.length < 2);
+    if (cams.length < 2) return;
+    let want = cams[0].deviceId;
+    try { const saved = localStorage.getItem("census-cam"); if (saved && cams.some((c) => c.deviceId === saved)) want = saved; } catch (e) { /* */ }
+    if (want !== state.deviceId) await startStream(want);
+  }
+
+  $("cam-switch").addEventListener("click", async () => {
+    const cams = state.cams || [];
+    if (cams.length < 2) return;
+    const i = cams.findIndex((c) => c.deviceId === state.deviceId);
+    const next = cams[(i + 1) % cams.length].deviceId;
+    try { localStorage.setItem("census-cam", next); } catch (e) { /* */ }
+    state.okRun = 0;
+    try { await startStream(next); layout(); } catch (e) { setHint("تعذر تبديل الكاميرا.", "bad"); }
+  });
 
   function layout() {
     const vw = video.videoWidth, vh = video.videoHeight;
