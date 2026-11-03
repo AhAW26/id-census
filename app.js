@@ -533,11 +533,20 @@
     const direct = !!CFG.uploadUrl;
     $("direct").classList.toggle("hidden", !direct);
     $("done").classList.add("hidden");
-    $("upload").disabled = false;
+    // مع الهوية: يؤكد الموظف أنه راجع الصورة (الانعكاس الصغير لا يُكشف تلقائياً بثقة)
+    const needConfirm = state.answer === "have";
+    $("confirm-row").classList.toggle("hidden", !needConfirm);
+    $("confirm").checked = !needConfirm;
+    $("upload").disabled = needConfirm; $("share").disabled = needConfirm;
     $("upload-msg").textContent = ""; $("upload-msg").className = "hint";
     $("wa").classList.toggle("hidden", direct);
     show("step-send");
   }
+
+  $("confirm").addEventListener("change", () => {
+    $("upload").disabled = !$("confirm").checked;
+    $("share").disabled = !$("confirm").checked;
+  });
 
   // الإرسال المباشر إلى Google Drive عبر سكربت الوحدة؛ إن فشل يظهر الإرسال بالواتساب بديلاً
   $("upload").addEventListener("click", async () => {

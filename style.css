@@ -50,6 +50,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .hint { margin: 0; font-weight: 700; text-align: center; min-height: 2.4em; }
 .hint.ok { color: var(--ok); }
 .hint.bad { color: var(--bad); }
+.confirm { flex-direction: row; align-items: flex-start; gap: 10px; font-weight: 400; font-size: 14px; line-height: 1.6; background: #f7f9fb; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.confirm input { width: 22px; height: 22px; margin-top: 2px; flex: none; }
 #result { width: 100%; border: 1px solid var(--line); border-radius: 10px; }
 .alt { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 #direct { display: flex; flex-direction: column; gap: 8px; }
