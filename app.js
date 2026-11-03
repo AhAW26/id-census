@@ -53,7 +53,7 @@
     $("info-err").textContent = err;
     if (err) return;
     // قبل التصوير: هل الرقم في قائمة الموظفين، وهل أرسل جرده سابقاً (إن تعذر الفحص يكمل، والسكربت يتحقق عند الإرسال)
-    const chk = await precheck(emp);
+    const chk = await precheck(emp, phone);
     if (chk && chk.known === false) { $("info-err").textContent = "رقم الحاسبة غير موجود في قائمة الموظفين. تأكد من الرقم أو راجع وحدة المعلومات."; return; }
     if (chk && chk.done && (chk.done === "have" || state.answer !== "have")) {
       $("info-err").textContent = "تم استلام جردك سابقاً، ولا حاجة لإعادة الإرسال. للتصحيح راجع وحدة المعلومات.";
@@ -69,14 +69,14 @@
     }
   });
 
-  async function precheck(emp) {
+  async function precheck(emp, phone) {
     if (!CFG.uploadUrl) return null;
     const btn = $("info-next");
     btn.disabled = true; btn.textContent = "جارٍ التحقق…";
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 8000);
-      const r = await fetch(CFG.uploadUrl + "?emp=" + encodeURIComponent(emp), { signal: ctl.signal });
+      const r = await fetch(CFG.uploadUrl + "?emp=" + encodeURIComponent(emp) + "&phone=" + encodeURIComponent(phone) + "&answer=" + encodeURIComponent(state.answer || ""), { signal: ctl.signal });
       clearTimeout(t);
       const j = await r.json();
       return j && j.ok ? j : null;

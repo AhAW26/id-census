@@ -10,6 +10,7 @@
  * وفي المجلد نفسه جدول «سجل جرد الهويات» فيه ورقتان:
  *  - «الموظفون»: أرقام الحاسبة المسموح لها بالإرسال (عمود A). إن تُركت فارغة يُقبل أي رقم.
  *  - «الإرسالات»: كل إرسال مقبول. لكل رقم حاسبة إرسال واحد؛ للسماح لموظف بالإعادة احذف صفه.
+ *  - «المرفوضة»: محاولات رُفضت (رقم غير موجود، أو موظف أرسل سابقاً ويحاول ثانية فقد يريد التصحيح).
  * إرسال «هويتي معي» (باركوده مطابق) يحل محل إرسال سابق «لا أملك هوية» أو «مفقودة» للرقم نفسه.
  *
  * لاستيراد الصور: نزّل المجلد من Drive (يُنزّل ملفاً مضغوطاً) واختره في البرنامج:
@@ -19,6 +20,7 @@ const FOLDER_NAME = "جرد الهويات";
 const BOOK_NAME = "سجل جرد الهويات";
 const EMP_SHEET = "الموظفون";
 const LOG_SHEET = "الإرسالات";
+const REJECT_SHEET = "المرفوضة";
 const MAX_BYTES = 8 * 1024 * 1024;   // أكبر صورة مقبولة
 const MAX_PER_HOUR = 10;             // أقصى محاولات لرقم الحاسبة الواحد في الساعة
 const DONE_MSG = "تم استلام جردك سابقاً، ولا حاجة لإعادة الإرسال. للتصحيح راجع وحدة المعلومات.";
@@ -42,11 +44,17 @@ function doPost(e) {
     const count = Number(cache.get(key) || 0);
     if (count >= MAX_PER_HOUR) return reply_({ ok: false, error: "أرسلت مرات كثيرة. حاول بعد ساعة." });
     cache.put(key, String(count + 1), 3600);
-    if (!known_(emp)) return reply_({ ok: false, error: "رقم الحاسبة غير موجود في قائمة الموظفين. راجع وحدة المعلومات." });
+    if (!known_(emp)) {
+      reject_(emp, parts[2], "رقم غير موجود في القائمة");
+      return reply_({ ok: false, error: "رقم الحاسبة غير موجود في قائمة الموظفين. راجع وحدة المعلومات." });
+    }
 
     if (!lock.tryLock(15000)) return reply_({ ok: false, error: "الخدمة مشغولة، حاول بعد لحظات." });
     const prev = previous_(emp);
-    if (prev && (prev.answer === "have" || answer !== "have")) return reply_({ ok: false, done: true, error: DONE_MSG });
+    if (prev && (prev.answer === "have" || answer !== "have")) {
+      reject_(emp, parts[2], "أرسل سابقاً (" + prev.answer + ") ويحاول ثانية: " + answer);
+      return reply_({ ok: false, done: true, error: DONE_MSG });
+    }
 
     const stamp = Utilities.formatDate(new Date(), "Asia/Baghdad", "yyyyMMdd-HHmmss");
     const name = "census-" + emp + "-" + stamp + ".jpg";
@@ -70,8 +78,23 @@ function doGet(e) {
   const emp = String((e && e.parameter && e.parameter.emp) || "");
   if (!/^\d{1,7}$/.test(emp)) return reply_({ ok: true, service: "id-census" });
   const n = String(parseInt(emp, 10));
-  const prev = previous_(n);
-  return reply_({ ok: true, known: known_(n), done: prev ? prev.answer : null });
+  const phone = String(e.parameter.phone || "");
+  const answer = String(e.parameter.answer || "");
+  const known = known_(n), prev = previous_(n);
+  if (!known) reject_(n, phone, "رقم غير موجود في القائمة");
+  else if (prev && (prev.answer === "have" || answer !== "have")) reject_(n, phone, "أرسل سابقاً (" + prev.answer + ") وفتح الرابط ثانية");
+  return reply_({ ok: true, known: known, done: prev ? prev.answer : null });
+}
+
+// يسجل المحاولة المرفوضة مرة واحدة كل 30 دقيقة لكل رقم وسبب، حتى لا تتكرر الصفوف
+function reject_(emp, phone, reason) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const key = "r" + emp + "|" + reason;
+    if (cache.get(key)) return;
+    cache.put(key, "1", 1800);
+    sheet_(REJECT_SHEET).appendRow([new Date(), emp, /^07\d{9}$/.test(phone) ? "'" + phone : "", reason]);
+  } catch (err) { /* التسجيل لا يمنع الرد */ }
 }
 
 function known_(emp) {
@@ -105,6 +128,7 @@ function book_() {
   const book = SpreadsheetApp.create(BOOK_NAME);
   book.getSheets()[0].setName(EMP_SHEET).appendRow(["رقم الحاسبة"]);
   book.insertSheet(LOG_SHEET).appendRow(["الوقت", "رقم الحاسبة", "الهاتف", "الجواب", "الوجه متحقق", "الملف", "معرّف الملف"]);
+  book.insertSheet(REJECT_SHEET).appendRow(["الوقت", "رقم الحاسبة", "الهاتف", "السبب"]);
   DriveApp.getFileById(book.getId()).moveTo(folder_());
   props.setProperty("BOOK_ID", book.getId());
   return book;
@@ -112,7 +136,12 @@ function book_() {
 
 function sheet_(name) {
   const book = book_();
-  return book.getSheetByName(name) || book.insertSheet(name);
+  let sh = book.getSheetByName(name);
+  if (!sh) {  // ورقة أضيفت بعد إنشاء الجدول
+    sh = book.insertSheet(name);
+    if (name === REJECT_SHEET) sh.appendRow(["الوقت", "رقم الحاسبة", "الهاتف", "السبب"]);
+  }
+  return sh;
 }
 
 function folder_() {
