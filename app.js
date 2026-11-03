@@ -16,6 +16,8 @@
   const SHARP_MIN = 250;             // حدة الصورة (تباين لابلاس على عرض 480)
   const NEED = { front: 1, back: 1 };  // لقطات خضراء متتالية قبل الالتقاط التلقائي (قراءة الباركود أو الرقم تكفي دليلاً)
   const SKIP_AFTER = 16;             // محاولات لا يُقرأ فيها رقم الوجه قبل السماح بالتقاطه دون تحقق
+  const SHEEN_MAX = 0.55;             // أكبر نسبة لمعان مقبولة في خلية من الهوية (glareScore)
+  const SHEEN_WAIT = 25;              // لقطات ننتظر فيها هوية بلا لمعان قبل القبول (بضع ثوانٍ)
   const ROI = { x0: 0.12, x1: 0.62, y0: 0.62, y1: 0.82 };  // موضع «رقم الحاسبة» على وجه هوية الشركة
   const ANSWERS = { have: "هويتي معي", none: "لا أملك هوية", lost: "هويتي مفقودة" };
 
@@ -104,6 +106,7 @@
     $("cam-title").textContent = side === "front" ? "صورة وجه الهوية" : "صورة ظهر الهوية (الباركود)";
     $("cam-step").textContent = side === "back" ? "1 من 2" : "2 من 2";
     state.misses = 0;
+    state.sheenWait = 0;
     $("cam-skip").classList.add("hidden");
     $("flip").classList.add("hidden");
     if (side === "back") ocrWorker();  // تحميل قارئ الأرقام مسبقاً أثناء تصوير الظهر
@@ -268,6 +271,38 @@
     return { ok: false, msg: "طابق حواف الهوية مع الإطار (لا تخرج عنه ولا تصغر داخله)." };
   }
 
+  // انعكاس الضوء على اللمينيت: بقع أفتح بوضوح من محيطها وبلا لون (تبيضّ الألوان تحتها).
+  // يعيد أكبر نسبة من هذه البقع في خلية من شبكة 8×6 على الهوية
+  function glareScore(canvas) {
+    const w = canvas.width, h = canvas.height;
+    const d = canvas.getContext("2d").getImageData(0, 0, w, h).data;
+    const V = new Float32Array(w * h), S = new Float32Array(w * h);
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+      V[j] = mx; S[j] = mx ? (mx - mn) * 255 / mx : 0;
+    }
+    const integral = (a) => {
+      const I = new Float64Array((w + 1) * (h + 1));
+      for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += a[y * w + x]; I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row; } }
+      return I;
+    };
+    const IV = integral(V), IS = integral(S);
+    const box = (I, x, y, r) => {
+      const x0 = Math.max(0, x - r), y0 = Math.max(0, y - r), x1 = Math.min(w, x + r + 1), y1 = Math.min(h, y + r + 1);
+      return (I[y1 * (w + 1) + x1] - I[y0 * (w + 1) + x1] - I[y1 * (w + 1) + x0] + I[y0 * (w + 1) + x0]) / ((x1 - x0) * (y1 - y0));
+    };
+    const cols = 8, rows = 6, hit = new Float32Array(cols * rows), cnt = new Float32Array(cols * rows);
+    const big = Math.round(w / 12);
+    for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+      const vs = box(IV, x, y, 3), c = Math.min(rows - 1, (y * rows / h) | 0) * cols + Math.min(cols - 1, (x * cols / w) | 0);
+      cnt[c]++;
+      if (vs > 170 && vs - box(IV, x, y, big) > 15 && box(IS, x, y, 3) < 45) hit[c]++;
+    }
+    let worst = 0;
+    for (let c = 0; c < hit.length; c++) if (cnt[c]) worst = Math.max(worst, hit[c] / cnt[c]);
+    return worst;
+  }
+
   function sharpness(a) {
     const s = grab(0, 480).canvas, w = s.width, h = s.height, g = gray(s);
     let sum = 0, sum2 = 0, n = 0, glare = 0;
@@ -277,7 +312,7 @@
       sum += l; sum2 += l * l; n++;
       if (v >= 253) glare++;
     }
-    return { sharp: sum2 / n - (sum / n) ** 2, glare: glare / n };
+    return { sharp: sum2 / n - (sum / n) ** 2, glare: glare / n, sheen: glareScore(s) };
   }
 
   // يقص جزءاً من الإطار (نِسَب من الهوية) مكبّراً بعامل معين
@@ -383,6 +418,11 @@
     if (!fill.ok) return fill;
     const q = sharpness();
     if (q.glare > 0.06) return { ok: false, msg: "يوجد انعكاس ضوء على الهوية. غيّر زاوية الهاتف أو ابتعد عن المصباح." };
+    // انعكاس أخف (لمعان اللمينيت): ننتظر لقطة أنظف لثوانٍ قليلة، ثم نقبل حتى لا يعلق الموظف
+    if (q.sheen > SHEEN_MAX && state.sheenWait < SHEEN_WAIT) {
+      state.sheenWait++;
+      return { ok: false, msg: "يوجد لمعان ضوء على الهوية. أمِل الهاتف قليلاً أو ابتعد عن المصباح، ولا تستخدم الفلاش." };
+    }
     // الحدة لا تمنع وحدها: إن قُرئ الباركود أو الرقم فالصورة واضحة بما يكفي، وتُستعمل لرسالة التنبيه فقط
     const blurry = q.sharp < SHARP_MIN;
     const full = grab(0.03);
